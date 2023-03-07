@@ -11,19 +11,40 @@ function failed(err) {
 async function load(pages) {
     let nav = document.getElementsByTagName("nav")[0];
     
-    pages = pages.sort((a, b) => a.priority - b.priority);
+    pages = pages.sort((a, b) => b.priority - a.priority);
 
-    for (page of pages) {
+    for (let page of pages) {
         let link = document.createElement("a");
         link.href = `#${page.name}`;
         link.innerHTML = page.name;
         nav.appendChild(link);
     }
 
-    document.getElementsByTagName("article").innerHTML = pages[0].render(null);
+    var converter = new showdown.Converter();
+    
+    let name = location.hash === "" ? pages[0].name : location.hash.slice(1);
+    render_by_name(name, pages, converter);
+
+    window.onhashchange = function () {
+        let name = location.hash.slice(1);
+        render_by_name(name, pages, converter);
+    };
 
     console.log(await Promise.all(pages.map(m=> m.contents())))
 }
+
+function render_by_name(name, pages, converter) {
+    let page = pages.find(item => item.name === name);
+    if (page != undefined) {
+        page.render(converter)
+            .then(html => document.getElementsByTagName("article")[0].innerHTML = html)
+            .catch(e => failed(e));
+    } else {
+        failed("Unable to find page")
+    }
+}
+
+
 
 class Page {
     constructor(priority, name, url) {
@@ -33,7 +54,7 @@ class Page {
     }
 
     async contents() {
-        return []
+        return ""
     }
 
     async render(converter) {
@@ -47,11 +68,12 @@ class Static extends Page {
     }
 
     async contents() {
-        return fetch_static(this.url)
+        return await fetch_static(this.url)
     }
 
     async render(converter) {
-        return fetch_static(this.url)
+        let data = await fetch_static(this.url);
+        return converter.makeHtml(data);
     }
 }
 
@@ -61,11 +83,19 @@ class Blog extends Page {
     }
 
     async contents() {
-        return fetch_blog(this.url)
+        return await fetch_blog(this.url)
     }
 
     async render(converter) {
-        // todo
+        let posts = await fetch_blog(this.url);
+        posts = posts.sort((a, b) => b.priority - a.priority);
+
+        let data = "";
+        for (let post of posts) {
+            data += await post.render(converter);
+        }
+
+        return data;
     }
 }
 
@@ -79,7 +109,7 @@ async function fetch_page_data(meta) {
     }
 
 
-    return await fetch(`https://api.github.com/repos/${user}/${repo}/contents/`)
+    return await fetch(`https://api.github.com/repos/${user}/${repo}/contents/www`)
         .then(async (res) => res.json())
         .then(async (contents) => Promise.all(contents.map(async (item) => {
             if (is_file(item)) {
