@@ -1,0 +1,3 @@
+# A static page
+
+contents
